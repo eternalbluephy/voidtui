@@ -162,7 +162,7 @@ impl Buffer {
         buffer
     }
 
-    pub fn fill_background(&mut self, background: Color) -> &mut Self {
+    pub fn fill_background(&mut self, background: Option<Color>) -> &mut Self {
         for pixel in self.pixels.iter_mut() {
             pixel.set_background(background);
         }
@@ -204,6 +204,25 @@ impl Buffer {
         }
 
         out
+    }
+
+    #[allow(unused_assignments)]
+    pub fn render(&mut self, x: u16, y: u16, buffer: &Buffer) {
+        let start_x = x;
+        let start_y = y;
+        let width = buffer.width.min(self.width - x);
+        let height = buffer.height.min(self.height - y);
+        for y in start_y..start_y + height {
+            self.clear_at(x, y);
+            let mut x = start_x;
+            while x < start_x + width {
+                self.render_pixel(x, y, buffer.get(x - start_x, y - start_y));
+                x += buffer.get(x - start_x, y - start_y).width() as u16;
+            }
+            if x < self.width && self.get(x, y).is_skip() {
+                self.get_mut(x, y).clear_char();
+            }
+        }
     }
 }
 
@@ -281,7 +300,7 @@ mod tests {
                 Area::new(0, 0, 20, 15),
                 false,
             )
-            .fill_background(Color::Background)
+            .fill_background(Some(Color::Background))
             .view(ColorSystem::TrueColor, &Theme::TOKYO_NIGHT);
         print!("{}", out);
     }

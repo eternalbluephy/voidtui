@@ -1,6 +1,10 @@
+use crossterm::{style::available_color_count, terminal};
+
+use crate::{geometry::size::Size, style::color::ColorSystem};
+
 pub struct WindowsTerminalSupports {
     pub virtual_terminal_processing: bool,
-    pub truecolor: bool
+    pub truecolor: bool,
 }
 
 /// Get windows terminal vt and truecolor support.
@@ -8,7 +12,13 @@ pub struct WindowsTerminalSupports {
 /// Please compile and run the executable file in your terminal.
 #[cfg(windows)]
 pub fn get_windows_terminal_supports() -> WindowsTerminalSupports {
-    use winapi::{shared::{minwindef::DWORD, ntdef::NULL}, um::{consoleapi::GetConsoleMode, processenv::GetStdHandle, winbase::STD_OUTPUT_HANDLE, wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING}};
+    use winapi::{
+        shared::{minwindef::DWORD, ntdef::NULL},
+        um::{
+            consoleapi::GetConsoleMode, processenv::GetStdHandle, winbase::STD_OUTPUT_HANDLE,
+            wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+        },
+    };
     use winver::WindowsVersion;
 
     unsafe {
@@ -26,11 +36,32 @@ pub fn get_windows_terminal_supports() -> WindowsTerminalSupports {
         }
         WindowsTerminalSupports {
             virtual_terminal_processing: vt,
-            truecolor
+            truecolor,
         }
     }
 }
 
+#[allow(unreachable_code)]
+pub fn detect_color_system() -> ColorSystem {
+    #[cfg(windows)]
+    {
+        if get_windows_terminal_supports().virtual_terminal_processing {
+            return ColorSystem::TrueColor;
+        } else {
+            return ColorSystem::LegacyWindows;
+        }
+    }
+    match available_color_count() {
+        u16::MAX => ColorSystem::TrueColor,
+        256 => ColorSystem::EightBit,
+        8 => ColorSystem::Standard,
+        _ => panic!("Bad color count, expected u16::Max, 256 or 8"),
+    }
+}
+
+pub fn size() -> Size {
+    terminal::size().unwrap().into()
+}
 
 #[cfg(test)]
 mod tests {
@@ -39,8 +70,10 @@ mod tests {
     #[test]
     fn test_get_windows_terminal_supports() {
         let supports = get_windows_terminal_supports();
-        println!("Support virtual terminal processing: {}", supports.virtual_terminal_processing);
+        println!(
+            "Support virtual terminal processing: {}",
+            supports.virtual_terminal_processing
+        );
         println!("Support truecolor: {}", supports.truecolor);
     }
-    
 }

@@ -1,103 +1,101 @@
-use std::{io::{stdout, Result}, sync::{mpsc::{self, Receiver, SendError, Sender}, Arc, Mutex}, thread::{self, JoinHandle}, u16};
+use std::{
+    io::{stdout, Result, Write},
+    marker::PhantomData,
+    sync::{mpsc, Arc, Mutex},
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
+    u16,
+};
 
-use crossterm::{event::{DisableMouseCapture, EnableMouseCapture, Event}, style::available_color_count, terminal::{disable_raw_mode, enable_raw_mode, window_size}, ExecutableCommand};
+use crossterm::{
+    cursor,
+    event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    QueueableCommand,
+};
 
-use crate::{geometry::size::Size, style::{color::ColorSystem, theme::Theme}, terminal::get_windows_terminal_supports};
+use crate::{
+    buffer::buffer::Buffer,
+    geometry::{area::Area, length::Length, size::Size},
+    shell::Shell,
+    style::{
+        color::{Color, ColorSystem},
+        theme::Theme,
+    },
+    terminal,
+};
 
-use super::{screen::Screen, widget::Widget};
+use super::{element::Element, widget::Widget};
 
-pub struct App {
+pub trait Program<'a, Message: Clone> {
+    /// Update the program state with a message.
+    fn update(&mut self, message: Message);
+
+    /// Returns the element to be rendered.
+    fn view(&self) -> Element<'a, Message>;
+
+    /// Returns the theme of the program.
+    fn theme(&self) -> Theme {
+        Theme::TOKYO_NIGHT
+    }
+}
+
+pub struct App<Message, Program>
+where
+    Message: Clone,
+    Program: for<'a> self::Program<'a, Message>,
+{
     running: Arc<Mutex<bool>>,
     framerate: FrameRate,
     color_system: ColorSystem,
-    theme: Theme,
-    event_channel: (Sender<Event>, Receiver<Event>),
+    background: Option<Color>,
     event_thread: Option<JoinHandle<()>>,
-    screens: Vec<Screen>
+    quit_key: KeyCode,
+    program: Program,
+    _message: PhantomData<Message>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameRate {
     Max(u16),
-    Unlimited
+    Unlimited,
 }
 
-impl App {
-    pub fn new() -> Self {
+impl<Message, Program> App<Message, Program>
+where
+    Message: Clone,
+    Program: for<'a> self::Program<'a, Message>,
+{
+    pub fn new(instance: Program) -> Self {
         Self {
             running: Arc::new(Mutex::new(false)),
             framerate: FrameRate::Max(60),
-            color_system: App::detect_color_system(),
-            theme: Theme::TOKYO_NIGHT,
-            event_channel: mpsc::channel(),
+            color_system: terminal::detect_color_system(),
+            background: None,
             event_thread: None,
-            screens: Vec::new()
+            quit_key: KeyCode::Char('q'),
+            program: instance,
+            _message: PhantomData,
         }
     }
 
-    pub fn terminal_size() -> Size {
-        let size = window_size().unwrap();
-        Size::new(size.columns, size.rows)
-    }
-
-    #[allow(unreachable_code)]
-    pub fn detect_color_system() -> ColorSystem {
-        #[cfg(windows)] {
-            if get_windows_terminal_supports().virtual_terminal_processing {
-                return ColorSystem::TrueColor;
-            } else {
-                return ColorSystem::LegacyWindows;
-            }
-        }
-        match available_color_count() {
-            u16::MAX => ColorSystem::TrueColor,
-            256 => ColorSystem::EightBit,
-            8 => ColorSystem::Standard,
-            _ => panic!("Bad color count, expected u16::Max, 256 or 8")
-        }
-    }
-
-    pub fn set_color_system(&mut self, system: ColorSystem) -> &mut Self {
+    pub fn color_system(mut self, system: ColorSystem) -> Self {
         self.color_system = system;
         self
     }
 
-    pub fn set_theme(&mut self, theme: Theme) -> &mut Self {
-        self.theme = theme;
+    pub fn framerate(mut self, framerate: FrameRate) -> Self {
+        self.framerate = framerate;
         self
     }
 
-    pub fn push_screen(&mut self, screen: Screen) -> &mut Self {
-        self.screens.push(screen);
+    pub fn quit_key(&mut self, key: KeyCode) -> &mut Self {
+        self.quit_key = key;
         self
     }
 
-    pub fn pop_screen(&mut self) -> &mut Self {
-        self.screens.pop();
-        self
-    }
-
-    /// Get the top screen.
-    pub fn screen(&self) -> Option<&Screen> {
-        self.screens.last()
-    }
-
-    /// Get the top screen as mutable.
-    pub fn screen_mut(&mut self) -> Option<&mut Screen> {
-        self.screens.last_mut()
-    }
-
-    fn init_fullscreen() -> Result<()> {
-        enable_raw_mode()?;
-        stdout().execute(EnableMouseCapture)?;
-        Ok(())
-    }
-
-    fn uninit_fullscreen() -> Result<()> {
-        stdout().execute(DisableMouseCapture)?;
-        disable_raw_mode()?;
-        Ok(())
-    }
-
+    /// Run the app and enter the main loop.
+    /// This function will change the terminal environment until [`Self::stop`] is called.
     pub fn run(&mut self) {
         // Check if the app has been already run.
         if *self.running.lock().unwrap() || self.event_thread.is_some() {
@@ -106,25 +104,52 @@ impl App {
 
         Self::init_fullscreen().unwrap();
         *self.running.lock().unwrap() = true;
+
+        // Start event thread.
         let event_thread_running = self.running.clone();
-        let sender = self.event_channel.0.clone();
+        let (sender, receiver) = mpsc::channel();
         self.event_thread = Some(thread::spawn(move || {
             while *event_thread_running.lock().unwrap() {
                 let event = crossterm::event::read().unwrap();
                 sender.send(event).unwrap();
             }
         }));
+
+        let mut timepoint = Instant::now();
+        // Main output and event processing loop.
         while *self.running.lock().unwrap() {
-            if let Some(screen) = self.screen()  {
-                let view = screen.view(self.color_system, &self.theme);
-                print!("{}", view);
+            // First, draw the widget.
+            let mut element = self.program.view();
+            let widget = element.widget_mut();
+            self.draw(widget, &self.program.theme());
+
+            // Second, process events.
+            while let Ok(event) = receiver.try_recv() {
+                let mut shell = Shell::new();
+                widget.process_event(event.clone(), &mut shell);
+                self.process_event(event, &mut shell);
+                for message in shell.messages() {
+                    self.program.update(message.clone());
+                }
+            }
+
+            // Third, sleep to limit the frame rate.
+            if let FrameRate::Max(fps) = self.framerate {
+                let elapsed = timepoint.elapsed();
+                let target = Duration::from_millis(1000 / fps as u64);
+                if elapsed < target {
+                    thread::sleep(target - elapsed);
+                }
+                timepoint = Instant::now();
             }
         }
 
-        self.stop().unwrap();
+        self.stop();
     }
 
-    pub fn stop(&mut self) -> Result<()> {
+    /// Stop the app and exit the main loop.
+    /// This function will restore the terminal environment to the original state.
+    pub fn stop(&mut self) {
         *self.running.lock().unwrap() = false;
 
         // Stop event thread.
@@ -132,37 +157,73 @@ impl App {
             thread.join().unwrap();
         }
 
-        Self::uninit_fullscreen()?;
+        Self::uninit_fullscreen().unwrap();
+    }
+
+    fn init_fullscreen() -> Result<()> {
+        enable_raw_mode()?;
+        stdout().queue(cursor::Hide)?;
+        stdout().queue(EnableMouseCapture)?;
+        stdout().queue(EnterAlternateScreen)?;
+        stdout().flush()?;
         Ok(())
     }
-}
 
-impl Widget for App {
-    fn process_event(&mut self, event: Event) -> bool {
-        for screen in self.screens.iter_mut() {
-            screen.process_event(event.clone());
+    fn uninit_fullscreen() -> Result<()> {
+        stdout().queue(LeaveAlternateScreen)?;
+        stdout().queue(DisableMouseCapture)?;
+        stdout().queue(cursor::Show)?;
+        stdout().flush()?;
+        disable_raw_mode()?;
+        Ok(())
+    }
+
+    fn draw(&self, widget: &mut dyn Widget<Message>, theme: &Theme) {
+        let width = match widget.size().width {
+            Length::Fixed(width) => width,
+            _ => terminal::size().width,
+        };
+        let height = match widget.size().height {
+            Length::Fixed(height) => height,
+            _ => terminal::size().height,
+        };
+        let viewport = Area::new(0, 0, width, height);
+        widget.layout(viewport);
+        let mut background = Buffer::new(terminal::size().width, terminal::size().height);
+        background.fill_background(self.background);
+        let mut buffer = Buffer::new(width, height);
+        widget.render(&mut buffer);
+        background.render(0, 0, &buffer);
+        print!("\x1b[H{}", background.view(self.color_system, theme));
+    }
+
+    fn process_event(&mut self, event: Event, shell: &mut Shell<Message>) {
+        if shell.is_event_captured() {
+            return;
         }
-        false // App is the top widget.
+        match event {
+            Event::Key(key_event) => {
+                if key_event.code == self.quit_key {
+                    self.stop();
+                }
+            }
+            _ => {}
+        }
     }
 }
 
+impl<Message, Program> Widget<Message> for App<Message, Program>
+where
+    Message: Clone,
+    Program: for<'a> self::Program<'a, Message>,
+{
+    #[allow(unused_variables)]
+    fn render(&self, buffer: &mut Buffer) {}
 
-#[cfg(test)]
-mod tests {
-    use crate::widget::screen::Screen;
-
-    use super::App;
-
-    #[test]
-    fn detect_color_system() {
-        let color_system = super::App::detect_color_system();
-        println!("Color system: {:?}", color_system);
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
     }
 
-    #[test]
-    fn run() {
-        let mut app = App::new();
-        let screen = Screen::new()
-        app.run();
-    }
+    #[allow(unused_variables)]
+    fn layout(&mut self, viewport: Area) {}
 }
