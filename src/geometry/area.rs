@@ -1,4 +1,4 @@
-use super::spacing::Spacing;
+use super::{size::Size, spacing::Spacing};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Area {
@@ -24,6 +24,25 @@ impl Area {
             y: 0,
             width: 0,
             height: 0,
+        }
+    }
+
+    /// Creates a new area with a size, starting at the (0, 0) corner.
+    pub const fn from_size(size: Size) -> Self {
+        Area {
+            x: 0,
+            y: 0,
+            width: size.width,
+            height: size.height,
+        }
+    }
+
+    pub const fn from_wh(width: u16, height: u16) -> Self {
+        Area {
+            x: 0,
+            y: 0,
+            width,
+            height,
         }
     }
 

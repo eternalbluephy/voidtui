@@ -1,9 +1,14 @@
 use voidtui::{
+    vertical,
     widget::{
         app::{App, Program},
         element::Element,
     },
-    widgets::text,
+    widgets::{
+        button::button,
+        label::label,
+        vertical::{Vertical, VerticalAlignment},
+    },
 };
 
 #[derive(Clone)]
@@ -26,7 +31,13 @@ impl<'a> Program<'a, Message> for Counter {
     }
 
     fn view(&self) -> Element<'a, Message> {
-        text::text(self.count.to_string())
+        vertical![
+            button("Increase").on_click(Message::Increase).into(),
+            label(self.count.to_string()).into(),
+            button("Decrease").on_click(Message::Decrease).into(),
+        ]
+        .alignment(VerticalAlignment::Center)
+        .into()
     }
 }
 

@@ -78,6 +78,28 @@ impl RGB {
             .sqrt()
     }
 
+    pub fn brighter(&self, factor: f64) -> Self {
+        let factor = if factor < 0.0 { 0.0 } else { factor };
+        let (r, g, b) = self.normalized();
+        let (r, g, b) = (
+            (r + (1.0 - r) * factor).min(1.0),
+            (g + (1.0 - g) * factor).min(1.0),
+            (b + (1.0 - b) * factor).min(1.0),
+        );
+        RGB::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
+    }
+
+    pub fn darker(&self, factor: f64) -> Self {
+        let factor = if factor < 0.0 { 0.0 } else { factor };
+        let (r, g, b) = self.normalized();
+        let (r, g, b) = (
+            r * (1.0 - factor),
+            g * (1.0 - factor),
+            b * (1.0 - factor),
+        );
+        RGB::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
+    }
+
     pub fn ansi_codes(&self, system: ColorSystem, foreground: bool) -> String {
         match system {
             ColorSystem::Disabled => String::new(),

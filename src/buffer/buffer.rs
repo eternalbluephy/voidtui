@@ -162,9 +162,16 @@ impl Buffer {
         buffer
     }
 
-    pub fn fill_background(&mut self, background: Option<Color>) -> &mut Self {
-        for pixel in self.pixels.iter_mut() {
-            pixel.set_background(background);
+    /// Render the background of an area.
+    pub fn render_background(&mut self, area: Area, background: Option<Color>) -> &mut Self {
+        if background.is_none() {
+            return self;
+        }
+        let area = Area::from_wh(self.width, self.height).intersect(area);
+        for y in area.y..area.y + area.height {
+            for x in area.x..area.x + area.width {
+                self.get_mut(x, y).set_background(background);
+            }
         }
         self
     }
@@ -207,7 +214,7 @@ impl Buffer {
     }
 
     #[allow(unused_assignments)]
-    pub fn render(&mut self, x: u16, y: u16, buffer: &Buffer) {
+    pub fn render(&mut self, x: u16, y: u16, buffer: &Buffer) -> &mut Self {
         let start_x = x;
         let start_y = y;
         let width = buffer.width.min(self.width - x);
@@ -216,13 +223,36 @@ impl Buffer {
             self.clear_at(x, y);
             let mut x = start_x;
             while x < start_x + width {
-                self.render_pixel(x, y, buffer.get(x - start_x, y - start_y));
+                let pixel = buffer.get(x - start_x, y - start_y);
+                if pixel.width() as u16 + x >= start_x + width {
+                    break;
+                }
+                self.render_pixel(x, y, pixel);
                 x += buffer.get(x - start_x, y - start_y).width() as u16;
             }
             if x < self.width && self.get(x, y).is_skip() {
                 self.get_mut(x, y).clear_char();
             }
         }
+        self
+    }
+
+    pub fn fill(&mut self, area: Area, pixel: Pixel) -> &mut Self {
+        let area = Area::new(0, 0, self.width, self.height).intersect(area);
+        for y in area.y..area.y + area.height {
+            let mut x = area.x;
+            while x < area.x + area.width {
+                if x + pixel.width() as u16 >= area.x + area.width {
+                    break;
+                }
+                self.render_pixel(x, y, &pixel);
+                x += pixel.width() as u16;
+            }
+            if x < self.width && self.get(x, y).is_skip() {
+                self.get_mut(x, y).clear_char();
+            }
+        }
+        self
     }
 }
 
@@ -300,7 +330,7 @@ mod tests {
                 Area::new(0, 0, 20, 15),
                 false,
             )
-            .fill_background(Some(Color::Background))
+            .render_background(Area::from_wh(20, 15), Some(Color::Background))
             .view(ColorSystem::TrueColor, &Theme::TOKYO_NIGHT);
         print!("{}", out);
     }

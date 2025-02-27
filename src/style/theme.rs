@@ -12,11 +12,11 @@ pub struct Theme {
 
 impl Theme {
     pub const TOKYO_NIGHT: Self = Self {
-        text: RGB::from_hex(0x9aa5ce),
-        background: RGB::from_hex(0x1a1b26),
-        primary: RGB::from_hex(0x2ac3de),
-        success: RGB::from_hex(0x9ece6a),
-        warning: RGB::from_hex(0xe0af68),
-        danger: RGB::from_hex(0xf7768e),
+        text: RGB::from_hex(0xA9B1D6),
+        background: RGB::from_hex(0x1A1B26),
+        primary: RGB::from_hex(0xBB9AF7),
+        success: RGB::from_hex(0x9ECE6A),
+        warning: RGB::from_hex(0xE0AF68),
+        danger: RGB::from_hex(0xF7768E),
     };
 }

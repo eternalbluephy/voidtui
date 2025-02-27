@@ -179,21 +179,21 @@ where
     }
 
     fn draw(&self, widget: &mut dyn Widget<Message>, theme: &Theme) {
-        let width = match widget.size().width {
+        let width = match widget.size_hint().width {
+            Length::Preferred => widget.size().width,
             Length::Fixed(width) => width,
             _ => terminal::size().width,
         };
-        let height = match widget.size().height {
+        let height = match widget.size_hint().height {
+            Length::Preferred => widget.size().height,
             Length::Fixed(height) => height,
             _ => terminal::size().height,
         };
-        let viewport = Area::new(0, 0, width, height);
-        widget.layout(viewport);
-        let mut background = Buffer::new(terminal::size().width, terminal::size().height);
-        background.fill_background(self.background);
-        let mut buffer = Buffer::new(width, height);
-        widget.render(&mut buffer);
-        background.render(0, 0, &buffer);
+        let area = Area::from_size(Size::new(width, height));
+        widget.layout(area);
+        let mut background = Buffer::new(area.width, area.height);
+        background.render_background(area, self.background);
+        widget.render(area, &mut background, theme);
         print!("\x1b[H{}", background.view(self.color_system, theme));
     }
 
@@ -218,10 +218,10 @@ where
     Program: for<'a> self::Program<'a, Message>,
 {
     #[allow(unused_variables)]
-    fn render(&self, buffer: &mut Buffer) {}
+    fn render(&self, area: Area, buffer: &mut Buffer, theme: &Theme) {}
 
-    fn size(&self) -> Size<Length> {
-        Size::new(Length::Fill, Length::Fill)
+    fn size(&self) -> Size<u16> {
+        Size::new(0, 0)
     }
 
     #[allow(unused_variables)]
