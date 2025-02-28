@@ -1,14 +1,14 @@
+use std::io::Result;
+
 use voidtui::{
-    vertical,
-    widget::{
+    style::color::Color, vertical, widget::{
         app::{App, Program},
         element::Element,
-    },
-    widgets::{
+    }, widgets::{
         button::button,
         label::label,
-        vertical::{Vertical, VerticalAlignment},
-    },
+        vertical::{Vertical, HorizontalAlignment},
+    }
 };
 
 #[derive(Clone)]
@@ -36,11 +36,14 @@ impl<'a> Program<'a, Message> for Counter {
             label(self.count.to_string()).into(),
             button("Decrease").on_click(Message::Decrease).into(),
         ]
-        .alignment(VerticalAlignment::Center)
-        .into()
+            .alignment(HorizontalAlignment::Center)
+            .into()
     }
 }
 
-fn main() {
-    App::new(Counter::default()).run();
+fn main() -> Result<()> {
+    App::new(Counter::default())
+        .background(Some(Color::Background))
+        .run()?;
+    Ok(())
 }

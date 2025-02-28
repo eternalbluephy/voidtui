@@ -65,10 +65,12 @@ pub fn size() -> Size {
 
 #[cfg(test)]
 mod tests {
-    use super::get_windows_terminal_supports;
 
+    #[cfg(windows)]
     #[test]
     fn test_get_windows_terminal_supports() {
+        use super::get_windows_terminal_supports;
+
         let supports = get_windows_terminal_supports();
         println!(
             "Support virtual terminal processing: {}",

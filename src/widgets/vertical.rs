@@ -7,7 +7,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VerticalAlignment {
+pub enum HorizontalAlignment {
     Start,
     Center,
     End,
@@ -15,7 +15,7 @@ pub enum VerticalAlignment {
 
 pub struct Vertical<'a, Message> {
     children: Vec<Element<'a, Message>>,
-    alignment: VerticalAlignment,
+    alignment: HorizontalAlignment,
     background: Option<Color>,
     children_bounds: Vec<Area>,
     preferred_size: Size,
@@ -37,7 +37,7 @@ impl<'a, Message> Vertical<'a, Message> {
     pub fn new() -> Self {
         Self {
             children: Vec::new(),
-            alignment: VerticalAlignment::Start,
+            alignment: HorizontalAlignment::Start,
             background: None,
             children_bounds: Vec::new(),
             preferred_size: Size::new(0, 0),
@@ -55,7 +55,7 @@ impl<'a, Message> Vertical<'a, Message> {
         }
         Self {
             children,
-            alignment: VerticalAlignment::Start,
+            alignment: HorizontalAlignment::Start,
             background: None,
             children_bounds,
             preferred_size,
@@ -64,7 +64,7 @@ impl<'a, Message> Vertical<'a, Message> {
         }
     }
 
-    pub fn alignment(mut self, alignment: VerticalAlignment) -> Self {
+    pub fn alignment(mut self, alignment: HorizontalAlignment) -> Self {
         self.alignment = alignment;
         self
     }
@@ -120,14 +120,14 @@ impl<'a, Message> Widget<Message> for Vertical<'a, Message> {
             .enumerate()
         {
             let x = match self.alignment {
-                VerticalAlignment::Start => viewport.x,
-                VerticalAlignment::Center => {
+                HorizontalAlignment::Start => viewport.x,
+                HorizontalAlignment::Center => {
                     viewport
                         .x
                         .saturating_add(viewport.width.saturating_sub(width))
                         / 2
                 }
-                VerticalAlignment::End => viewport
+                HorizontalAlignment::End => viewport
                     .x
                     .saturating_add(viewport.width)
                     .saturating_sub(width),

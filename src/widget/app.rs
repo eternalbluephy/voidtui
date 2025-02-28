@@ -8,10 +8,7 @@ use std::{
 };
 
 use crossterm::{
-    cursor,
-    event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    QueueableCommand,
+    cursor, event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode}, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}, ExecutableCommand, QueueableCommand
 };
 
 use crate::{
@@ -79,6 +76,11 @@ where
         }
     }
 
+    pub fn background(mut self, background: Option<Color>) -> Self {
+        self.background = background;
+        self
+    }
+
     pub fn color_system(mut self, system: ColorSystem) -> Self {
         self.color_system = system;
         self
@@ -96,10 +98,10 @@ where
 
     /// Run the app and enter the main loop.
     /// This function will change the terminal environment until [`Self::stop`] is called.
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<()> {
         // Check if the app has been already run.
         if *self.running.lock().unwrap() || self.event_thread.is_some() {
-            return;
+            return Ok(());
         }
 
         Self::init_fullscreen().unwrap();
@@ -121,7 +123,7 @@ where
             // First, draw the widget.
             let mut element = self.program.view();
             let widget = element.widget_mut();
-            self.draw(widget, &self.program.theme());
+            self.draw(widget, &self.program.theme())?;
 
             // Second, process events.
             while let Ok(event) = receiver.try_recv() {
@@ -144,12 +146,13 @@ where
             }
         }
 
-        self.stop();
+        self.stop()?;
+        Ok(())
     }
 
     /// Stop the app and exit the main loop.
     /// This function will restore the terminal environment to the original state.
-    pub fn stop(&mut self) {
+    pub fn stop(&mut self) -> Result<()> {
         *self.running.lock().unwrap() = false;
 
         // Stop event thread.
@@ -157,7 +160,8 @@ where
             thread.join().unwrap();
         }
 
-        Self::uninit_fullscreen().unwrap();
+        Self::uninit_fullscreen()?;
+        Ok(())
     }
 
     fn init_fullscreen() -> Result<()> {
@@ -178,7 +182,7 @@ where
         Ok(())
     }
 
-    fn draw(&self, widget: &mut dyn Widget<Message>, theme: &Theme) {
+    fn draw(&self, widget: &mut dyn Widget<Message>, theme: &Theme) -> Result<()> {
         let width = match widget.size_hint().width {
             Length::Preferred => widget.size().width,
             Length::Fixed(width) => width,
@@ -190,11 +194,14 @@ where
             _ => terminal::size().height,
         };
         let area = Area::from_size(Size::new(width, height));
+        let terminal_area = Area::from_size(terminal::size());
         widget.layout(area);
-        let mut background = Buffer::new(area.width, area.height);
-        background.render_background(area, self.background);
+        let mut background = Buffer::new(terminal_area.width, terminal_area.height);
+        background.render_background(terminal_area, self.background);
         widget.render(area, &mut background, theme);
-        print!("\x1b[H{}", background.view(self.color_system, theme));
+        stdout().execute(crossterm::cursor::MoveTo(0, 0))?;
+        print!("{}", background.view(self.color_system, theme));
+        Ok(())
     }
 
     fn process_event(&mut self, event: Event, shell: &mut Shell<Message>) {
@@ -204,7 +211,7 @@ where
         match event {
             Event::Key(key_event) => {
                 if key_event.code == self.quit_key {
-                    self.stop();
+                    self.stop().unwrap();
                 }
             }
             _ => {}

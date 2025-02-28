@@ -185,7 +185,7 @@ impl Buffer {
 
     pub fn view(&self, system: ColorSystem, theme: &Theme) -> String {
         let mut out = String::new();
-        let ansi = |style: &Style| format!("\x1b[0m\x1b[{}m", style.ansi_codes(system, theme));
+        let ansi = |style: &Style| format!("\x1b[{}m", style.ansi_codes(system, theme));
         let mut last_style = Style::new();
 
         for y in 0..self.height {
@@ -205,9 +205,6 @@ impl Buffer {
             }
             out.push_str("\x1b[0m");
             last_style = Style::new();
-            if y < self.height - 1 {
-                out.push('\n');
-            }
         }
 
         out
