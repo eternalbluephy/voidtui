@@ -1,16 +1,9 @@
-use crossterm::event::Event;
-
 use crate::{
-    buffer::buffer::Buffer,
-    geometry::{area::Area, length::Length, size::Size, spacing::Spacing},
-    shell::Shell,
-    style::{color::Color, theme::Theme},
-    widget::{element::Element, widget::Widget},
+    buffer::buffer::Buffer, event::Event, geometry::{area::Area, length::Length, point::Point, size::Size, spacing::Spacing}, shell::Shell, style::{color::Color, theme::Theme}, widget::{element::Element, widget::Widget}
 };
 
 pub struct Padding<'a, Message> {
     element: Element<'a, Message>,
-    widget_bounds: Area,
     padding: Spacing,
     background: Option<Color>,
     size_hint: Size<Length>,
@@ -19,22 +12,22 @@ pub struct Padding<'a, Message> {
 #[macro_export]
 macro_rules! padding {
     ($element:expr, $padding_y:expr, $padding_x:expr) => {
-        Element::new(padding::Padding::axes($element, $padding_y, $padding_x))
+        Padding::axes($element, $padding_y, $padding_x)
     };
     ($element:expr, $padding_y:expr) => {
-        Element::new(padding::Padding::vertical($element, $padding_y))
+        Padding::vertical($element, $padding_y)
     };
     ($element:expr, $padding_x:expr) => {
-        Element::new(padding::Padding::horizontal($element, $padding_x))
+        Padding::horizontal($element, $padding_x)
     };
     ($element:expr, $padding_top:expr, $padding_right:expr, $padding_bottom:expr, $padding_left:expr) => {
-        Element::new(padding::Padding::new(
+        Padding::new(
             $element,
             $padding_top,
             $padding_right,
             $padding_bottom,
             $padding_left,
-        ))
+        )
     };
 }
 
@@ -48,7 +41,6 @@ impl<'a, Message> Padding<'a, Message> {
     ) -> Self {
         Padding {
             element,
-            widget_bounds: Area::zeros(),
             padding: Spacing::new(padding_top, padding_right, padding_bottom, padding_left),
             background: None,
             size_hint: Size::preferred(),
@@ -58,7 +50,6 @@ impl<'a, Message> Padding<'a, Message> {
     pub fn axes(element: Element<'a, Message>, padding_y: u16, padding_x: u16) -> Self {
         Padding {
             element,
-            widget_bounds: Area::zeros(),
             padding: Spacing::axes(padding_y, padding_x),
             background: None,
             size_hint: Size::preferred(),
@@ -68,7 +59,6 @@ impl<'a, Message> Padding<'a, Message> {
     pub fn vertical(element: Element<'a, Message>, padding_y: u16) -> Self {
         Padding {
             element,
-            widget_bounds: Area::zeros(),
             padding: Spacing::vertical(padding_y),
             background: None,
             size_hint: Size::preferred(),
@@ -78,7 +68,6 @@ impl<'a, Message> Padding<'a, Message> {
     pub fn horizontal(element: Element<'a, Message>, padding_x: u16) -> Self {
         Padding {
             element,
-            widget_bounds: Area::zeros(),
             padding: Spacing::horizontal(padding_x),
             background: None,
             size_hint: Size::preferred(),
@@ -103,8 +92,9 @@ impl<'a, Message> Padding<'a, Message> {
 
 impl<'a, Message> Widget<Message> for Padding<'a, Message> {
     fn layout(&mut self, viewport: Area) {
-        self.widget_bounds = viewport.shrink(self.padding);
-        self.element.widget_mut().layout(self.widget_bounds);
+        self.element
+            .widget_mut()
+            .layout(viewport.shrink(self.padding));
     }
 
     fn render(&self, area: Area, buffer: &mut Buffer, theme: &Theme) {
@@ -114,8 +104,32 @@ impl<'a, Message> Widget<Message> for Padding<'a, Message> {
             .render(area.shrink(self.padding), buffer, theme);
     }
 
-    fn process_event(&mut self, event: Event, shell: &mut Shell<Message>) {
-        self.element.widget_mut().process_event(event, shell)
+    fn process_event(
+        &mut self,
+        event: Event,
+        shell: &mut Shell<Message>,
+        bounds: Area
+    ) {
+        let event = match event {
+            Event::Mouse(mouse_event) => {
+                let position = match mouse_event.position {
+                    Some(position) => {
+                        if bounds.contains(position.x, position.y) {
+                            Some(Point::new(
+                                position.x + self.padding.left,
+                                position.y + self.padding.top,
+                            ))
+                        } else {
+                            None
+                        }
+                    }
+                    None => None,
+                };
+                Event::Mouse(mouse_event.position(position))
+            }
+            _ => event
+        };
+        self.element.widget_mut().process_event(event, shell, bounds);
     }
 
     fn size(&self) -> Size {
@@ -124,5 +138,9 @@ impl<'a, Message> Widget<Message> for Padding<'a, Message> {
 
     fn size_hint(&self) -> Size<Length> {
         self.size_hint
+    }
+
+    fn update(&mut self) {
+        self.element.widget_mut().update();
     }
 }

@@ -1,6 +1,6 @@
 use super::{size::Size, spacing::Spacing};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Area {
     pub x: u16,
     pub y: u16,
@@ -77,8 +77,51 @@ impl Area {
         )
     }
 
+    pub fn expand(&self, padding: impl Into<Spacing>) -> Self {
+        let padding: Spacing = padding.into();
+        Area::new(
+            self.x.saturating_sub(padding.left),
+            self.y.saturating_sub(padding.top),
+            self.width.saturating_add(padding.left + padding.right),
+            self.height.saturating_add(padding.top + padding.bottom),
+        )
+    }
+
     pub fn contains(&self, x: u16, y: u16) -> bool {
         x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
+
+    pub fn up(&self, offset: u16) -> Self {
+        Area::new(self.x, self.y.saturating_sub(offset), self.width, self.height)
+    }
+
+    pub fn right(&self, offset: u16) -> Self {
+        Area::new(self.x.saturating_add(offset), self.y, self.width, self.height)
+    }
+
+    pub fn down(&self, offset: u16) -> Self {
+        Area::new(self.x, self.y.saturating_add(offset), self.width, self.height)
+    }
+
+    pub fn left(&self, offset: u16) -> Self {
+        Area::new(self.x.saturating_add(offset), self.y, self.width, self.height)
+    }
+
+    pub fn x(&self, x: u16) -> Self {
+        Area::new(x, self.y, self.width, self.height)
+    }
+
+    pub fn y(&self, y: u16) -> Self {
+        Area::new(self.x, y, self.width, self.height)
+    }
+
+    pub fn min(&self, size: Size) -> Self {
+        Area::new(
+            self.x,
+            self.y,
+            size.width.min(self.width),
+            size.height.min(self.height),
+        )
     }
 }
 

@@ -1,54 +1,61 @@
-use std::{
-    io::{stdout, Result, Write},
-    marker::PhantomData,
-    sync::{mpsc, Arc, Mutex},
-    thread::{self, JoinHandle},
-    time::{Duration, Instant},
-    u16,
-};
-
 use crossterm::{
-    cursor, event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode}, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}, ExecutableCommand, QueueableCommand
+    cursor,
+    event::{DisableMouseCapture, EnableMouseCapture},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    ExecutableCommand, QueueableCommand,
+};
+use std::{
+    any::Any, collections::HashMap, io::{stdout, Result, Write}, marker::PhantomData, sync::{
+        atomic::{AtomicU16, Ordering},
+        mpsc, Arc, Mutex,
+    }, thread::{self, JoinHandle}, time::{Duration, Instant}, u16
 };
 
 use crate::{
-    buffer::buffer::Buffer,
-    geometry::{area::Area, length::Length, size::Size},
-    shell::Shell,
-    style::{
+    buffer::buffer::Buffer, event::Event, geometry::{area::Area, length::Length, size::Size}, shell::Shell, style::{
         color::{Color, ColorSystem},
         theme::Theme,
-    },
-    terminal,
+    }, terminal, widget::{element::Element, widget::Widget}
 };
 
-use super::{element::Element, widget::Widget};
+static MOUSE_X: AtomicU16 = AtomicU16::new(0);
+static MOUSE_Y: AtomicU16 = AtomicU16::new(0);
 
-pub trait Program<'a, Message: Clone> {
+#[allow(unused_variables)]
+pub trait Program<Message: Clone> {
     /// Update the program state with a message.
-    fn update(&mut self, message: Message);
+    fn update(&mut self, message: Message) {}
 
     /// Returns the element to be rendered.
-    fn view(&self) -> Element<'a, Message>;
+    fn view(&mut self) -> Element<'_, Message>;
 
     /// Returns the theme of the program.
     fn theme(&self) -> Theme {
         Theme::TOKYO_NIGHT
     }
+
+    fn process_event(&mut self, event: Event, shell: &mut Shell<Message>) {}
+
+    fn should_stop(&self) -> bool {
+        false
+    }
 }
 
-pub struct App<Message, Program>
+pub struct App<Message>
 where
     Message: Clone,
-    Program: for<'a> self::Program<'a, Message>,
 {
+    /// Caution: This is not implemented yet.
+    /// 
+    /// The hashmap of states where widgets defaultly store.
+    /// You can otherwise store your states in your program struct.
+    /// This depends on how the widget supported.
+    _states: HashMap<usize, Box<dyn Any>>,
     running: Arc<Mutex<bool>>,
     framerate: FrameRate,
     color_system: ColorSystem,
     background: Option<Color>,
     event_thread: Option<JoinHandle<()>>,
-    quit_key: KeyCode,
-    program: Program,
     _message: PhantomData<Message>,
 }
 
@@ -58,26 +65,24 @@ pub enum FrameRate {
     Unlimited,
 }
 
-impl<Message, Program> App<Message, Program>
+impl<Message> App<Message>
 where
     Message: Clone,
-    Program: for<'a> self::Program<'a, Message>,
 {
-    pub fn new(instance: Program) -> Self {
+    pub fn new() -> Self {
         Self {
+            _states: HashMap::new(),
             running: Arc::new(Mutex::new(false)),
             framerate: FrameRate::Max(60),
             color_system: terminal::detect_color_system(),
             background: None,
             event_thread: None,
-            quit_key: KeyCode::Char('q'),
-            program: instance,
             _message: PhantomData,
         }
     }
 
-    pub fn background(mut self, background: Option<Color>) -> Self {
-        self.background = background;
+    pub fn background(mut self, background: Option<impl Into<Color>>) -> Self {
+        self.background = background.map(|bg| bg.into());
         self
     }
 
@@ -91,14 +96,9 @@ where
         self
     }
 
-    pub fn quit_key(&mut self, key: KeyCode) -> &mut Self {
-        self.quit_key = key;
-        self
-    }
-
     /// Run the app and enter the main loop.
     /// This function will change the terminal environment until [`Self::stop`] is called.
-    pub fn run(&mut self) -> Result<()> {
+    pub fn run<P: Program<Message>>(&mut self, mut program: P) -> Result<()> {
         // Check if the app has been already run.
         if *self.running.lock().unwrap() || self.event_thread.is_some() {
             return Ok(());
@@ -120,22 +120,41 @@ where
         let mut timepoint = Instant::now();
         // Main output and event processing loop.
         while *self.running.lock().unwrap() {
-            // First, draw the widget.
-            let mut element = self.program.view();
-            let widget = element.widget_mut();
-            self.draw(widget, &self.program.theme())?;
+            let theme = program.theme();
+            // First, we process with the elements.
+            let mut element = program.view();
+            let area = Self::layout(element.widget_mut());
 
-            // Second, process events.
+            let mut shell = Shell::new();
+            // Events should be storaged for further usage.
+            let mut events: Vec<Event> = Vec::new();
             while let Ok(event) = receiver.try_recv() {
-                let mut shell = Shell::new();
-                widget.process_event(event.clone(), &mut shell);
-                self.process_event(event, &mut shell);
-                for message in shell.messages() {
-                    self.program.update(message.clone());
-                }
+                events.push(event.clone().into());
+                element
+                    .widget_mut()
+                    .process_event(
+                        event.into(), &mut shell, area
+                    );
+            }
+            element.widget_mut().update();
+            
+
+            self.draw(area, element.widget(), &theme)?;
+            // We need to update the program state after dropping the widget due to borrow check.
+            drop(element);
+            // Element's part has ended, we can process program itself now.
+            for event in events {
+                self.process_event(event.clone(), &mut shell);
+                program.process_event(event, &mut shell);
+            }
+            for message in shell.messages() {
+                program.update(message.clone());
+            }
+            if program.should_stop() {
+                break;
             }
 
-            // Third, sleep to limit the frame rate.
+            // Finally, sleep to limit the frame rate.
             if let FrameRate::Max(fps) = self.framerate {
                 let elapsed = timepoint.elapsed();
                 let target = Duration::from_millis(1000 / fps as u64);
@@ -182,7 +201,7 @@ where
         Ok(())
     }
 
-    fn draw(&self, widget: &mut dyn Widget<Message>, theme: &Theme) -> Result<()> {
+    fn layout(widget: &mut dyn Widget<Message>) -> Area {
         let width = match widget.size_hint().width {
             Length::Preferred => widget.size().width,
             Length::Fixed(width) => width,
@@ -193,9 +212,13 @@ where
             Length::Fixed(height) => height,
             _ => terminal::size().height,
         };
-        let area = Area::from_size(Size::new(width, height));
-        let terminal_area = Area::from_size(terminal::size());
+        let area = Area::from_size(Size::new(width, height)).min(terminal::size());
         widget.layout(area);
+        area
+    }
+
+    fn draw(&self, area: Area, widget: &dyn Widget<Message>, theme: &Theme) -> Result<()> {
+        let terminal_area = Area::from_size(terminal::size());
         let mut background = Buffer::new(terminal_area.width, terminal_area.height);
         background.render_background(terminal_area, self.background);
         widget.render(area, &mut background, theme);
@@ -204,33 +227,23 @@ where
         Ok(())
     }
 
-    fn process_event(&mut self, event: Event, shell: &mut Shell<Message>) {
-        if shell.is_event_captured() {
-            return;
-        }
-        match event {
-            Event::Key(key_event) => {
-                if key_event.code == self.quit_key {
-                    self.stop().unwrap();
-                }
-            }
-            _ => {}
+    fn process_event(&mut self, event: Event, _shell: &mut Shell<Message>) {
+        // Update mouse position
+        if let Event::Mouse(event) = event.clone() {
+            MOUSE_X.store(event.absolute_position.x, Ordering::Relaxed);
+            MOUSE_Y.store(event.absolute_position.y, Ordering::Relaxed);
         }
     }
 }
 
-impl<Message, Program> Widget<Message> for App<Message, Program>
-where
-    Message: Clone,
-    Program: for<'a> self::Program<'a, Message>,
-{
-    #[allow(unused_variables)]
-    fn render(&self, area: Area, buffer: &mut Buffer, theme: &Theme) {}
+pub struct Mouse;
 
-    fn size(&self) -> Size<u16> {
-        Size::new(0, 0)
+impl Mouse {
+    pub fn x() -> u16 {
+        MOUSE_X.load(Ordering::Relaxed)
     }
 
-    #[allow(unused_variables)]
-    fn layout(&mut self, viewport: Area) {}
+    pub fn y() -> u16 {
+        MOUSE_Y.load(Ordering::Relaxed)
+    }
 }

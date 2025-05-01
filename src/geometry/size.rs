@@ -1,6 +1,6 @@
 use super::length::Length;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Size<T = u16> {
     pub width: T,
     pub height: T,

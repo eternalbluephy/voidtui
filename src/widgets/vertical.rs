@@ -1,9 +1,5 @@
 use crate::{
-    buffer::buffer::Buffer,
-    geometry::{area::Area, length::Length, size::Size},
-    shell::Shell,
-    style::{color::Color, theme::Theme},
-    widget::{element::Element, widget::Widget},
+    buffer::buffer::Buffer, event::Event, geometry::{area::Area, length::Length, size::Size}, shell::Shell, style::{color::Color, theme::Theme}, widget::{element::Element, widget::Widget}
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +58,14 @@ impl<'a, Message> Vertical<'a, Message> {
             size_hint: Size::preferred(),
             spacing: 0,
         }
+    }
+
+    pub fn push(&mut self, child: impl Into<Element<'a, Message>>) {
+        let child = child.into();
+        self.preferred_size.width = self.preferred_size.width.max(child.widget().size().width);
+        self.preferred_size.height += child.widget().size().height;
+        self.children.push(child);
+        self.children_bounds.push(Area::zeros());
     }
 
     pub fn alignment(mut self, alignment: HorizontalAlignment) -> Self {
@@ -144,13 +148,23 @@ impl<'a, Message> Widget<Message> for Vertical<'a, Message> {
         }
     }
 
-    fn process_event(&mut self, event: crossterm::event::Event, shell: &mut Shell<Message>) {
-        if shell.is_event_captured() {
-            return;
-        }
-
-        for child in &mut self.children.iter_mut().rev() {
-            child.widget_mut().process_event(event.clone(), shell);
+    fn process_event(
+        &mut self,
+        event: Event,
+        shell: &mut Shell<Message>,
+        _bounds: Area
+    ) {
+        for (child, child_bounds) in &mut self
+            .children
+            .iter_mut()
+            .zip(self.children_bounds.iter())
+            .rev()
+        {
+            child.widget_mut().process_event(
+                event.clone(),
+                shell,
+                *child_bounds
+            );
         }
     }
 
@@ -170,6 +184,12 @@ impl<'a, Message> Widget<Message> for Vertical<'a, Message> {
 
     fn size_hint(&self) -> Size<Length> {
         self.size_hint
+    }
+
+    fn update(&mut self) {
+        for child in self.children.iter_mut() {
+            child.widget_mut().update();
+        }
     }
 }
 

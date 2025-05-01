@@ -48,11 +48,11 @@ impl Length {
             match length {
                 Length::Preferred => {
                     result.push(preference);
-                    remaining -= preference;
+                    remaining = remaining.saturating_sub(preference);
                 }
                 Length::Fixed(size) => {
                     if *size <= remaining {
-                        remaining -= size;
+                        remaining = remaining.saturating_sub(*size);
                         result.push(*size);
                     } else {
                         result.push(remaining);
@@ -112,6 +112,14 @@ impl Length {
         }
 
         result
+    }
+
+    pub fn fit_single(&self, total: u16, preference: u16) -> u16 {
+        match *self {
+            Length::Preferred => preference.min(total),
+            Length::Fixed(length) => length.min(total),
+            _ => total
+        }
     }
 }
 

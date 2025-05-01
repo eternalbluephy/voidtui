@@ -118,7 +118,7 @@ impl Buffer {
                     if end_x - x > 0 {
                         self.render_pixel(x, y, Pixel::from_char(' ').set_style(style));
                     }
-                    if wrap && y < end_y {
+                    if wrap && y < end_y - 1 {
                         x = start_x;
                         y += 1;
                     } else {
@@ -185,7 +185,7 @@ impl Buffer {
 
     pub fn view(&self, system: ColorSystem, theme: &Theme) -> String {
         let mut out = String::new();
-        let ansi = |style: &Style| format!("\x1b[{}m", style.ansi_codes(system, theme));
+        let ansi = |style: &Style| format!("\x1b[0m\x1b[{}m", style.ansi_codes(system, theme));
         let mut last_style = Style::new();
 
         for y in 0..self.height {
@@ -221,11 +221,11 @@ impl Buffer {
             let mut x = start_x;
             while x < start_x + width {
                 let pixel = buffer.get(x - start_x, y - start_y);
-                if pixel.width() as u16 + x >= start_x + width {
+                if pixel.width() as u16 + x > start_x + width {
                     break;
                 }
                 self.render_pixel(x, y, pixel);
-                x += buffer.get(x - start_x, y - start_y).width() as u16;
+                x += pixel.width() as u16;
             }
             if x < self.width && self.get(x, y).is_skip() {
                 self.get_mut(x, y).clear_char();
@@ -239,7 +239,7 @@ impl Buffer {
         for y in area.y..area.y + area.height {
             let mut x = area.x;
             while x < area.x + area.width {
-                if x + pixel.width() as u16 >= area.x + area.width {
+                if x + pixel.width() as u16 > area.x + area.width {
                     break;
                 }
                 self.render_pixel(x, y, &pixel);

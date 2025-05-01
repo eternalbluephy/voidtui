@@ -13,15 +13,34 @@ impl<Message> Shell<Message> {
         }
     }
 
+    /// Push the message to shell.
     pub fn push(&mut self, message: Message) {
         self.messages.push(message);
+    }
+
+    /// Push the optional message to shell.
+    /// 
+    /// Equals to
+    /// ```no_run
+    /// if let Some(message) = message {
+    ///     self.push(message);
+    /// }
+    /// ```
+    pub fn try_push(&mut self, message: Option<Message>) {
+        if let Some(message) = message {
+            self.push(message);
+        }
+    }
+
+    pub fn capture_event(&mut self) {
+        self.event_captured = true;
     }
 
     pub fn is_event_captured(&self) -> bool {
         self.event_captured
     }
 
-    pub fn messages(&self) -> &Vec<Message> {
+    pub fn messages(&self) -> &[Message] {
         &self.messages
     }
 }

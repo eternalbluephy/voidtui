@@ -39,6 +39,15 @@ impl Pixel {
         }
     }
 
+    pub fn char_with_style(character: char, style: Style) -> Self {
+        let width = character.width().unwrap() as u8;
+        Pixel {
+            character: Some(character),
+            width,
+            style,
+        }
+    }
+
     pub fn set_character(&mut self, character: char) -> &Self {
         self.character = Some(character);
         self.width = character.width().unwrap() as u8;
