@@ -6,8 +6,10 @@ use crate::{
 pub trait Widget<Message> {
     fn render(&self, area: Area, buffer: &mut Buffer, theme: &Theme);
 
+    /// Called each frame.
     fn update(&mut self) {}
 
+    /// Called when there is an event.
     fn process_event(
         &mut self,
         event: Event,

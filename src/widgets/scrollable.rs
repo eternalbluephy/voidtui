@@ -49,6 +49,10 @@ pub struct Scrollable<'a, Message> {
     state: &'a mut State,
 }
 
+pub fn scrollable<'a, Message>(state: &'a mut State, element: Element<'a, Message>) -> Scrollable<'a, Message> {
+    Scrollable::new(state, element)
+}
+
 impl<'a, Message> Scrollable<'a, Message> {
     pub fn new(state: &'a mut State, element: Element<'a, Message>) -> Self {
         Self {
@@ -123,7 +127,7 @@ impl<'a, Message> Scrollable<'a, Message> {
                 0.0
             };
             let available_space = bounds.height.saturating_sub(bar_height);
-            let bar_y = (scroll_ratio * available_space as f32) as u16;
+            let bar_y = (scroll_ratio * available_space as f32).round() as u16;
             
             Area::new(bounds.x + bounds.width - 1, bounds.y + bar_y, 1, bar_height)
         } else {
@@ -170,18 +174,20 @@ impl<'a, Message> Scrollable<'a, Message> {
         draggable_bounds: Area,
         element_height: u16,
     ) -> u16 {
-        if draggable_bounds.y == 0 {
+        if draggable_bounds.y == bar_bounds.y {
             return 0;
         } else if draggable_bounds.y + draggable_bounds.height >= bar_bounds.height {
             return element_height.saturating_sub(bar_bounds.height);
         }
 
-        let draggable_mid_y = draggable_bounds.y as i32 + (draggable_bounds.height / 2) as i32;
-        let scroll_ratio = draggable_mid_y as f32 / (bar_bounds.height as f32 - 1.0);
-        let element_mid_y = element_height as f32 * scroll_ratio;
-        return (element_mid_y as i32 - bar_bounds.height as i32 / 2)
-            .min(element_height as i32 - bar_bounds.height as i32)
-            .max(0) as u16;
+        let scroll_ratio = (draggable_bounds.y as f32 - bar_bounds.y as f32)
+            / (bar_bounds.height as f32 - draggable_bounds.height as f32);
+        let element_y = scroll_ratio * (element_height as f32 - bar_bounds.height as f32);
+
+        element_y
+            .min(element_height as f32 - bar_bounds.height as f32)
+            .max(0.0)
+            .round() as u16
     }
 }
 
@@ -271,18 +277,15 @@ impl<'a, Message> Widget<Message> for Scrollable<'a, Message> {
                             if vertical_bar_bounds.contains(position.x, position.y)
                                 && !vertical_draggable_bounds.contains(position.x, position.y)  {
                                 shell.capture_event();
-                                let expected_draggable_y = (position.y as i32 - vertical_bar_bounds.y as i32 / 2)
+                                let expected_draggable_y = (position.y as i32 - vertical_draggable_bounds.y as i32 / 2)
                                     .min(bounds.height as i32 - vertical_draggable_bounds.height as i32)
                                     .max(0) as u16;
                                 self.state.offset.y = Self::vertical_draggable_to_offset(vertical_bar_bounds, vertical_draggable_bounds.y(expected_draggable_y), element_height);
                             } else if horizontal_bar_bounds.contains(position.x, position.y)
                                 && !horizontal_draggable_bounds.contains(position.x, position.y) {
                                 shell.capture_event();
-                                self.state.offset.x = (
-                                    position.x.saturating_sub(bounds.x) as f32
-                                    / bounds.width as f32
-                                    * element_width as f32
-                                ) as u16;
+                                // TODO: horizontal draggable.
+
                             } else if vertical_draggable_bounds.contains(position.x, position.y)
                                 || horizontal_draggable_bounds.contains(position.x, position.y) {
                                 shell.capture_event();
@@ -297,6 +300,7 @@ impl<'a, Message> Widget<Message> for Scrollable<'a, Message> {
                                         .min(bounds.height as i32 - vertical_draggable_bounds.height as i32)
                                         .max(0) as u16;
                                     self.state.offset.y = Self::vertical_draggable_to_offset(vertical_bar_bounds, vertical_draggable_bounds.y(expected_draggable_y), element_height);
+                                    self.state.mouse_down_position = Some(position);
                                 }
                                 // TODO: horizontal draggable.
                             }

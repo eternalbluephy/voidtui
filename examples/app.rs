@@ -1,9 +1,9 @@
-use std::io::Result;
+use std::{borrow::BorrowMut, io::Result, sync::{Arc, Mutex}};
 
 use crossterm::event::{KeyCode, MouseEvent};
 use voidtui::{
     app::{App, Program}, event::Event, geometry::point::Point, shell::Shell, style::color::Color, vertical, widget::element::Element, widgets::{
-        button::{self, button, Button}, label::label, scrollable::{self, Scrollable}, vertical::{HorizontalAlignment, Vertical}, viewport::{viewport, Viewport}
+        button::{self, button, Button}, label::label, scrollable::{self, scrollable, Scrollable}, vertical::{HorizontalAlignment, Vertical}
     }
 };
 
@@ -47,7 +47,7 @@ impl Program<Message> for Counter {
                 format!("Button {}", i)
             ).on_click(Message::Increase));
         }
-        Scrollable::new(
+        scrollable(
             &mut self.scrollable,
             vertical.into()
         )
